@@ -1,0 +1,63 @@
+__merge__: /src/api/comp_method.yaml
+name: bernn
+label: BERNN
+summary: BERNN learns a batch-invariant latent representation with an autoencoder, cell-type supervision, and an explicit domain loss.
+description: |
+  BERNN (Batch Effect Removal Neural Network) learns a low-dimensional representation
+  that preserves biological class information while reducing batch-associated signal.
+  This OpenProblems adapter uses cell type as the supervised target and batch as the
+  domain label, then returns the fitted encoder representation as X_emb.
+links:
+  repository: https://github.com/spell00/BERNN_MSMS
+info:
+  method_types: [embedding]
+  preferred_normalization: log_cp10k
+  variants:
+    bernn_full_unscaled:
+arguments:
+  - name: --n_hvg
+    type: integer
+    default: 2000
+    description: Number of highly variable genes to use.
+  - name: --n_epochs
+    type: integer
+    default: 200
+    description: Maximum number of BERNN training epochs.
+  - name: --warmup
+    type: integer
+    default: 20
+    description: BERNN warmup epochs.
+  - name: --batch_size
+    type: integer
+    default: 256
+    description: Training and embedding batch size.
+  - name: --n_layers
+    type: integer
+    default: 2
+    description: Number of BERNN hidden layers.
+  - name: --layer1
+    type: integer
+    default: 256
+    description: Width of the first BERNN hidden layer.
+  - name: --dloss
+    type: string
+    default: inverseTriplet
+    description: BERNN domain-loss strategy.
+resources:
+  - type: python_script
+    path: script.py
+  - path: /src/utils/read_anndata_partial.py
+engines:
+  - type: docker
+    image: openproblems/base_pytorch_nvidia:1
+    setup:
+      - type: python
+        pypi:
+          - git+https://github.com/spell00/BERNN_MSMS.git@feature/openproblems-single-cell
+          - tensorboard
+          - tensorboardX
+runners:
+  - type: executable
+  - type: nextflow
+    directives:
+      label: [hightime, highmem, lowcpu, gpu]
