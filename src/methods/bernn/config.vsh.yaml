@@ -53,7 +53,7 @@ engines:
     setup:
       - type: python
         pypi:
-          - git+https://github.com/spell00/BERNN_MSMS.git@feature/openproblems-single-cell
+          - git+https://github.com/spell00/BERNN_MSMS.git@13a49f0182f4474e05c0a4aee78a904459f6c9b6
           - tensorboard
           - tensorboardX
 runners:
