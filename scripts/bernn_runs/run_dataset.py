@@ -231,7 +231,30 @@ def main():
             log_mlflow=False,
             log_dvclive=False,
         )
-        trainer.fit(X, y, groups_train=batches, internal_validation=False)
+        # Train on every OpenProblems cell, but avoid BERNN's no-holdout mode
+        # duplicating the entire training matrix into full-size valid/test monitors.
+        # A fixed representative monitor subset is sufficient for live diagnostics
+        # and does not remove any rows from training.
+        rng = np.random.default_rng(42)
+        monitor_n = min(4096, len(X))
+        monitor_idx = np.sort(rng.choice(len(X), size=monitor_n, replace=False))
+        X_monitor = X.iloc[monitor_idx].copy()
+        y_monitor = y[monitor_idx]
+        batches_monitor = batches[monitor_idx]
+        run.config.update({"monitor_n": int(monitor_n)}, allow_val_change=True)
+
+        trainer.fit(
+            X,
+            y,
+            groups_train=batches,
+            X_valid=X_monitor,
+            y_valid=y_monitor,
+            groups_valid=batches_monitor,
+            X_test=X_monitor,
+            y_test=y_monitor,
+            groups_test=batches_monitor,
+            internal_validation=False,
+        )
 
         X_scaled = trainer._prepare_prediction_matrix(
             X, groups_test=batches, return_batch_ids=False
