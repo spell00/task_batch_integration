@@ -1,33 +1,30 @@
 import sys
-
 import anndata as ad
+import numpy as np
+import pandas as pd
 import torch
+from scipy import sparse
 
-from bernn.single_cell import fit_transform_anndata
-
+from bernn import TrainAEClassifierHoldout
+from bernn.config.training_config import TrainingConfig
 
 ## VIASH START
 par = {
     "input": "resources_test/task_batch_integration/cxg_immune_cell_atlas/dataset.h5ad",
     "output": "output.h5ad",
     "n_hvg": 2000,
-    "n_epochs": 3,
-    "warmup": 1,
-    "batch_size": 64,
+    "n_epochs": 200,
+    "warmup": 50,
+    "batch_size": 128,
     "n_layers": 2,
-    "layer1": 128,
+    "layer1": 512,
     "dloss": "inverseTriplet",
 }
-meta = {
-    "name": "bernn",
-    "resources_dir": "src/utils",
-}
+meta = {"name": "bernn"}
 ## VIASH END
-
 
 sys.path.append(meta["resources_dir"])
 from read_anndata_partial import read_anndata
-
 
 print("Read input", flush=True)
 adata = read_anndata(
@@ -38,31 +35,71 @@ adata = read_anndata(
     uns="uns",
 )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+if par["n_hvg"]:
+    print(f"Select top {par['n_hvg']} highly variable genes", flush=True)
+    idx = adata.var["hvg_score"].to_numpy().argsort()[::-1][: par["n_hvg"]]
+    adata = adata[:, idx].copy()
+
+print("Prepare BERNN matrix", flush=True)
+matrix = adata.X.toarray() if sparse.issparse(adata.X) else np.asarray(adata.X)
+X = pd.DataFrame(matrix, index=adata.obs_names, columns=adata.var_names)
+y = adata.obs["cell_type"].astype(str).to_numpy()
+batches = adata.obs["batch"].astype(str).to_numpy()
+
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(
-    f"Run BERNN on {adata.n_obs} cells x {adata.n_vars} genes "
-    f"using device={device}",
+    f"Run BERNN 1.0.6 on {X.shape[0]} cells x {X.shape[1]} genes "
+    f"using {device}",
     flush=True,
 )
-embedding = fit_transform_anndata(
-    adata,
-    layer="X",
-    batch_key="batch",
-    label_key="cell_type",
-    n_hvg=par["n_hvg"],
-    dloss=par["dloss"],
-    n_epochs=par["n_epochs"],
-    warmup=par["warmup"],
-    batch_size=par["batch_size"],
-    n_layers=par["n_layers"],
-    layer1=par["layer1"],
-    scaler="standard",
+
+args = TrainingConfig(
+    n_epochs=int(par["n_epochs"]),
+    warmup=int(par["warmup"]),
+    bs=int(par["batch_size"]),
+    n_layers=int(par["n_layers"]),
+    layer1=int(par["layer1"]),
+    dloss=str(par["dloss"]),
     device=device,
+    n_repeats=1,
+    kan=False,
+    log1p=False,
+    scaler="standard",
 )
 
-print("Store outputs", flush=True)
+trainer = TrainAEClassifierHoldout(
+    config=args,
+    pools=False,
+    keep_models=False,
+    log_inputs=False,
+    log_plots=False,
+    log_tb=False,
+    log_mlflow=False,
+    log_dvclive=False,
+)
+
+# OpenProblems supplies one dataset to the method. BERNN therefore trains on
+# every cell; its validation/test loaders are train-resubstitution monitors
+# when internal_validation=False and do not remove rows from model fitting.
+trainer.fit(
+    X,
+    y,
+    groups_train=batches,
+    internal_validation=False,
+)
+
+print("Extract BERNN embedding", flush=True)
+X_scaled = trainer._prepare_prediction_matrix(
+    X,
+    groups_test=batches,
+    return_batch_ids=False,
+)
+embedding = np.asarray(trainer.transform(X_scaled), dtype=np.float32)
+
+print("Store output", flush=True)
 output = ad.AnnData(
     obs=adata.obs[[]],
+    var=pd.DataFrame(index=[]),
     obsm={"X_emb": embedding},
     uns={
         "dataset_id": adata.uns["dataset_id"],
@@ -70,6 +107,4 @@ output = ad.AnnData(
         "method_id": meta["name"],
     },
 )
-
-print("Write output to file", flush=True)
 output.write_h5ad(par["output"], compression="gzip")

@@ -1,14 +1,16 @@
 __merge__: /src/api/comp_method.yaml
 name: bernn
 label: BERNN
-summary: BERNN learns a batch-invariant latent representation with an autoencoder, cell-type supervision, and an explicit domain loss.
+summary: Batch Effect Removal Neural Network using supervised biological labels and batch domains.
 description: |
-  BERNN (Batch Effect Removal Neural Network) learns a low-dimensional representation
-  that preserves biological class information while reducing batch-associated signal.
-  This OpenProblems adapter uses cell type as the supervised target and batch as the
-  domain label, then returns the fitted encoder representation as X_emb.
+  BERNN learns a low-dimensional representation that preserves class-relevant
+  biological signal while reducing batch/domain effects with an autoencoder-based
+  neural network.
+references:
+  doi: 10.1038/s41467-024-48870-5
 links:
   repository: https://github.com/spell00/BERNN_MSMS
+  documentation: https://pypi.org/project/bernn/
 info:
   method_types: [embedding]
   preferred_normalization: log_cp10k
@@ -25,24 +27,25 @@ arguments:
     description: Maximum number of BERNN training epochs.
   - name: --warmup
     type: integer
-    default: 20
-    description: BERNN warmup epochs.
+    default: 50
+    description: Number of unsupervised warmup epochs.
   - name: --batch_size
     type: integer
-    default: 256
-    description: Training and embedding batch size.
+    default: 128
+    description: Training batch size.
   - name: --n_layers
     type: integer
     default: 2
-    description: Number of BERNN hidden layers.
+    description: Number of hidden layers.
   - name: --layer1
     type: integer
-    default: 256
-    description: Width of the first BERNN hidden layer.
+    default: 512
+    description: Width of the first hidden layer.
   - name: --dloss
     type: string
     default: inverseTriplet
-    description: BERNN domain-loss strategy.
+    choices: [inverseTriplet, revTriplet, DANN, revDANN, normae, no]
+    description: Batch-effect loss used by BERNN.
 resources:
   - type: python_script
     path: script.py
@@ -53,11 +56,14 @@ engines:
     setup:
       - type: python
         pypi:
-          - git+https://github.com/spell00/BERNN_MSMS.git@13a49f0182f4474e05c0a4aee78a904459f6c9b6
-          - tensorboard
+          - bernn==1.0.6
           - tensorboardX
+          - tensorboard
+          - tensorflow-cpu>=2.20.0
+          - shap
+          - torchvision
 runners:
   - type: executable
   - type: nextflow
     directives:
-      label: [hightime, highmem, lowcpu, gpu]
+      label: [veryhightime, midmem, lowcpu, gpu]
