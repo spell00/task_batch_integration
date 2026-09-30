@@ -18,6 +18,33 @@ import wandb
 
 from bernn import TrainAEClassifierHoldout
 from bernn.config.training_config import TrainingConfig
+import bernn.dl.train.train_ae_classifier_holdout as _bernn_holdout
+
+
+# BERNN 1.0.6 compatibility: TrainAEClassifierHoldout calls TensorboardLoggingAE
+# without the newer required `zinb` argument. Keep the patch local to this runner.
+_OriginalTensorboardLoggingAE = _bernn_holdout.TensorboardLoggingAE
+
+
+class _TensorboardLoggingAECompat(_OriginalTensorboardLoggingAE):
+    def __init__(self, hparams_filepath, params, variational, tw, tl, dloss,
+                 pseudo, train_after_warmup, berm, args, zinb=False):
+        super().__init__(
+            hparams_filepath,
+            params,
+            variational=variational,
+            zinb=zinb,
+            tw=tw,
+            tl=tl,
+            dloss=dloss,
+            pseudo=pseudo,
+            train_after_warmup=train_after_warmup,
+            berm=berm,
+            args=args,
+        )
+
+
+_bernn_holdout.TensorboardLoggingAE = _TensorboardLoggingAECompat
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
