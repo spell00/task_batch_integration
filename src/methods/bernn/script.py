@@ -42,13 +42,14 @@ if par["n_hvg"]:
 
 print("Prepare BERNN matrix", flush=True)
 matrix = adata.X.toarray() if sparse.issparse(adata.X) else np.asarray(adata.X)
+matrix = np.asarray(matrix, dtype=np.float32)
 X = pd.DataFrame(matrix, index=adata.obs_names, columns=adata.var_names)
 y = adata.obs["cell_type"].astype(str).to_numpy()
 batches = adata.obs["batch"].astype(str).to_numpy()
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(
-    f"Run BERNN 1.0.6 on {X.shape[0]} cells x {X.shape[1]} genes "
+    f"Run BERNN on {X.shape[0]} cells x {X.shape[1]} genes "
     f"using {device}",
     flush=True,
 )
@@ -78,13 +79,27 @@ trainer = TrainAEClassifierHoldout(
     log_dvclive=False,
 )
 
-# OpenProblems supplies one dataset to the method. BERNN therefore trains on
-# every cell; its validation/test loaders are train-resubstitution monitors
-# when internal_validation=False and do not remove rows from model fitting.
+# Train on every OpenProblems cell. BERNN's legacy no-holdout path copies the
+# full training matrix into validation/test monitors, so use a deterministic
+# 4,096-cell monitor subset instead. This changes only monitoring/checkpoint
+# diagnostics; all rows remain in the training set.
+rng = np.random.default_rng(42)
+monitor_n = min(4096, len(X))
+monitor_idx = np.sort(rng.choice(len(X), size=monitor_n, replace=False))
+X_monitor = X.iloc[monitor_idx].copy()
+y_monitor = y[monitor_idx]
+batches_monitor = batches[monitor_idx]
+
 trainer.fit(
     X,
     y,
     groups_train=batches,
+    X_valid=X_monitor,
+    y_valid=y_monitor,
+    groups_valid=batches_monitor,
+    X_test=X_monitor,
+    y_test=y_monitor,
+    groups_test=batches_monitor,
     internal_validation=False,
 )
 

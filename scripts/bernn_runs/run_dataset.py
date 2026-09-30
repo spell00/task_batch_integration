@@ -268,12 +268,60 @@ def main():
         trainer = TrainAEClassifierHoldout(
             config=cfg,
             pools=False,
-            keep_models=False,
+            keep_models=True,
             log_inputs=False,
             log_plots=False,
             log_tb=True,
             log_mlflow=False,
             log_dvclive=False,
+        )
+
+        # Mirror BERNN's actual _train(None) defaults and make_params() rules so
+        # provenance contains the effective hyperparameters rather than raw
+        # TrainingConfig fields that may be absent/None.
+        effective_hparams = {
+            "lr": getattr(trainer.args, "lr", 1e-3),
+            "dropout": getattr(trainer.args, "dropout", 0.1),
+            "wd": getattr(trainer.args, "wd", 1e-5),
+            "margin": getattr(trainer.args, "margin", 1.0),
+            "smoothing": getattr(trainer.args, "smoothing", 0.1),
+            "scaler": getattr(trainer.args, "scaler", "standard"),
+            "gamma": getattr(trainer.args, "gamma", 0.1),
+            "beta": getattr(trainer.args, "beta", 0.1),
+            "zeta": getattr(trainer.args, "zeta", 0.0),
+            "nu": getattr(trainer.args, "nu", 1.0),
+            "thres": getattr(trainer.args, "thres", 0.0),
+            "prune_threshold": getattr(trainer.args, "prune_threshold", 0.0),
+            "warmup": getattr(trainer.args, "warmup", 100),
+            "l1": getattr(trainer.args, "l1", 0.0),
+            "reg_entropy": getattr(trainer.args, "reg_entropy", 0.0),
+            "n_epochs": getattr(trainer.args, "n_epochs", args.epochs),
+            "bs": getattr(trainer.args, "bs", args.batch_size),
+            "n_layers": max(1, int(getattr(trainer.args, "n_layers", 1))),
+            "dloss": getattr(trainer.args, "dloss", args.dloss),
+            "kan": bool(getattr(trainer.args, "kan", False)),
+            "log1p": bool(getattr(trainer.args, "log1p", False)),
+            "num_workers": int(getattr(trainer.args, "num_workers", 0)),
+        }
+        effective_hparams.update(trainer.get_default_layer_params())
+        if effective_hparams["dloss"] not in [
+            "revTriplet", "revDANN", "DANN", "inverseTriplet", "normae"
+        ]:
+            effective_hparams["gamma"] = 0
+        if not bool(getattr(trainer.args, "variational", False)):
+            effective_hparams["beta"] = 0
+        if not bool(getattr(trainer.args, "use_l1", False)):
+            effective_hparams["l1"] = 0
+            effective_hparams["reg_entropy"] = 0
+        if not bool(getattr(trainer.args, "prune_network", False)):
+            effective_hparams["prune_threshold"] = 0
+        if float(effective_hparams["prune_threshold"]) > 0:
+            effective_hparams["dropout"] = 0
+        effective_hparams["thres"] = 0
+
+        run.config.update(
+            {f"bernn/{key}": value for key, value in effective_hparams.items()},
+            allow_val_change=True,
         )
         # Train on every OpenProblems cell, but avoid BERNN's no-holdout mode
         # duplicating the entire training matrix into full-size valid/test monitors.
@@ -299,6 +347,82 @@ def main():
             groups_test=batches_monitor,
             internal_validation=False,
         )
+
+        # Persist the exact restored best model and all inference-critical state.
+        model_dir = output_path.parent / "model"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = model_dir / "best_model_state.pt"
+        config_path = model_dir / "training_config.json"
+
+        scaler_state = {}
+        for attr in ["mean_", "scale_", "var_", "n_features_in_"]:
+            value = getattr(trainer.scaler, attr, None)
+            if value is not None:
+                if isinstance(value, np.ndarray):
+                    scaler_state[attr] = value.tolist()
+                elif isinstance(value, np.generic):
+                    scaler_state[attr] = value.item()
+                else:
+                    scaler_state[attr] = value
+
+        if getattr(trainer, "_label_encoder", None) is not None:
+            class_names = trainer._label_encoder.classes_.tolist()
+        else:
+            class_names = [str(x) for x in np.unique(y)]
+
+        batch_map = {
+            str(key): int(value)
+            for key, value in getattr(trainer, "batch_map_", {}).items()
+        }
+        checkpoint = {
+            "model_state_dict": {
+                key: value.detach().cpu()
+                for key, value in trainer.ae.state_dict().items()
+            },
+            "effective_hparams": effective_hparams,
+            "scaler_state": scaler_state,
+            "feature_names": [str(x) for x in X.columns],
+            "class_names": class_names,
+            "batch_map": batch_map,
+            "dataset_slug": dataset_slug,
+            "dataset_id": str(adata.uns["dataset_id"]),
+            "normalization_id": str(adata.uns["normalization_id"]),
+            "git_commit": git_value("rev-parse", "HEAD"),
+            "bernn_version": importlib.metadata.version("bernn"),
+            "wandb_run_id": run.id,
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        config_payload = {
+            key: value for key, value in checkpoint.items()
+            if key != "model_state_dict"
+        }
+        config_path.write_text(
+            json.dumps(config_payload, indent=2, sort_keys=True)
+        )
+
+        model_artifact = wandb.Artifact(
+            name=f"bernn-openproblems-{dataset_slug}-model-{run.id}",
+            type="model",
+            metadata={
+                "dataset_slug": dataset_slug,
+                "bernn_version": importlib.metadata.version("bernn"),
+                "git_commit": git_value("rev-parse", "HEAD"),
+                "best_valid_mcc": float(getattr(trainer, "best_mcc", np.nan)),
+            },
+        )
+        model_artifact.add_file(str(checkpoint_path), name="best_model_state.pt")
+        model_artifact.add_file(str(config_path), name="training_config.json")
+        if Path(trainer.complete_log_path).exists():
+            model_artifact.add_dir(
+                trainer.complete_log_path,
+                name="tensorboard_and_bernn_checkpoints",
+            )
+        run.log_artifact(model_artifact)
+        run.summary["best_valid_mcc"] = float(
+            getattr(trainer, "best_mcc", np.nan)
+        )
+        run.summary["model_checkpoint"] = str(checkpoint_path)
 
         X_scaled = trainer._prepare_prediction_matrix(
             X, groups_test=batches, return_batch_ids=False
