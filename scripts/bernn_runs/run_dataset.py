@@ -248,6 +248,23 @@ def main():
             scaler="standard",
             num_workers=0,
         )
+        # Legacy TensorBoard logger fields expected by BERNN 1.0.6.
+        # These are logging metadata only; they do not alter optimization.
+        _tb_defaults = {
+            "berm": "none",
+            "rec_loss": "mse",
+            "dataset": dataset_slug,
+            "strategy": "openproblems_full_data",
+            "bad_batches": "",
+            "remove_zeros": False,
+            "use_mapping": getattr(cfg, "use_mapping", False),
+            "csv_file": str(input_path),
+            "tied_weights": getattr(cfg, "tied_weights", False),
+        }
+        for _name, _value in _tb_defaults.items():
+            if not hasattr(cfg, _name):
+                setattr(cfg, _name, _value)
+
         trainer = TrainAEClassifierHoldout(
             config=cfg,
             pools=False,
