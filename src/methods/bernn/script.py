@@ -80,12 +80,12 @@ args = TrainingConfig(
     scaler="standard",
     num_workers=0,
     optimize_hyperparams=False,
-    groupkfold=False,
+    groupkfold=True,
 )
 
 trainer = TrainAEClassifierHoldout(
     config=args,
-    groupkfold=False,
+    groupkfold=True,
     pools=False,
     keep_models=False,
     log_inputs=False,
