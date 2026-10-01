@@ -7,6 +7,19 @@ from scipy import sparse
 
 from bernn import TrainAEClassifierHoldout
 from bernn.config.training_config import TrainingConfig
+from bernn.dl.models.pytorch.utils.utils import LogConfusionMatrix as _BERNNLogConfusionMatrix
+
+# BERNN 1.0.6 bugfix: LogConfusionMatrix.add computes int(1000 / batch_size).
+# With our reference batch_size=1024 that becomes 0 and crashes after training.
+# Confusion-matrix accumulation is not used by OpenProblems here, but preserve
+# normal behavior for batch sizes <=1000.
+_bernn_cm_add = _BERNNLogConfusionMatrix.add
+def _safe_bernn_cm_add(self, lists):
+    train_preds = lists.get("train", {}).get("preds", [])
+    if train_preds and int(1000 / max(1, train_preds[0].shape[0])) < 1:
+        return
+    return _bernn_cm_add(self, lists)
+_BERNNLogConfusionMatrix.add = _safe_bernn_cm_add
 
 ## VIASH START
 par = {
@@ -15,7 +28,7 @@ par = {
     "n_hvg": 2000,
     "n_epochs": 200,
     "warmup": 50,
-    "batch_size": 128,
+    "batch_size": 1024,
     "n_layers": 2,
     "layer1": 512,
     "dloss": "inverseTriplet",
@@ -42,14 +55,13 @@ if par["n_hvg"]:
 
 print("Prepare BERNN matrix", flush=True)
 matrix = adata.X.toarray() if sparse.issparse(adata.X) else np.asarray(adata.X)
-matrix = np.asarray(matrix, dtype=np.float32)
 X = pd.DataFrame(matrix, index=adata.obs_names, columns=adata.var_names)
 y = adata.obs["cell_type"].astype(str).to_numpy()
 batches = adata.obs["batch"].astype(str).to_numpy()
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(
-    f"Run BERNN on {X.shape[0]} cells x {X.shape[1]} genes "
+    f"Run BERNN 1.0.6 on {X.shape[0]} cells x {X.shape[1]} genes "
     f"using {device}",
     flush=True,
 )
@@ -66,10 +78,14 @@ args = TrainingConfig(
     kan=False,
     log1p=False,
     scaler="standard",
+    num_workers=0,
+    optimize_hyperparams=False,
+    groupkfold=False,
 )
 
 trainer = TrainAEClassifierHoldout(
     config=args,
+    groupkfold=False,
     pools=False,
     keep_models=False,
     log_inputs=False,
@@ -79,27 +95,35 @@ trainer = TrainAEClassifierHoldout(
     log_dvclive=False,
 )
 
-# Train on every OpenProblems cell. BERNN's legacy no-holdout path copies the
-# full training matrix into validation/test monitors, so use a deterministic
-# 4,096-cell monitor subset instead. This changes only monitoring/checkpoint
-# diagnostics; all rows remain in the training set.
-rng = np.random.default_rng(42)
-monitor_n = min(4096, len(X))
-monitor_idx = np.sort(rng.choice(len(X), size=monitor_n, replace=False))
-X_monitor = X.iloc[monitor_idx].copy()
-y_monitor = y[monitor_idx]
-batches_monitor = batches[monitor_idx]
+# OpenProblems supplies one dataset to the method. BERNN therefore trains on
+# every cell; its validation/test loaders are train-resubstitution monitors
+# when internal_validation=False and do not remove rows from model fitting.
+best_params = {
+    "lr": 1e-3,
+    "dropout": 0.0,
+    "wd": 1e-5,
+    "margin": 1.0,
+    "smoothing": 0.1,
+    "scaler": "standard",
+    "gamma": 0.1,
+    "beta": 0.0,
+    "zeta": 0.0,
+    "nu": 1.0,
+    "thres": 0.0,
+    "prune_threshold": 0.0,
+    "warmup": int(par["warmup"]),
+    "l1": 0.0,
+    "reg_entropy": 0.0,
+    "layer1": int(par["layer1"]),
+    "layer2": max(16, int(par["layer1"]) // 2),
+    "n_layers": int(par["n_layers"]),
+}
 
 trainer.fit(
     X,
     y,
     groups_train=batches,
-    X_valid=X_monitor,
-    y_valid=y_monitor,
-    groups_valid=batches_monitor,
-    X_test=X_monitor,
-    y_test=y_monitor,
-    groups_test=batches_monitor,
+    params=best_params,
     internal_validation=False,
 )
 

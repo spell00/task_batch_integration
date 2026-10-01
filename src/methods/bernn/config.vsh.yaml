@@ -31,8 +31,8 @@ arguments:
     description: Number of unsupervised warmup epochs.
   - name: --batch_size
     type: integer
-    default: 128
-    description: Training batch size.
+    default: 1024
+    description: Training batch size used by the selected OpenProblems BERNN configuration.
   - name: --n_layers
     type: integer
     default: 2
@@ -56,7 +56,7 @@ engines:
     setup:
       - type: python
         pypi:
-          - git+https://github.com/spell00/BERNN_MSMS.git@8f9164deac2751f24dfc6c53895dce06be1c603e
+          - bernn==1.0.6
           - tensorboardX
           - tensorboard
           - tensorflow-cpu>=2.20.0
