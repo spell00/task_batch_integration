@@ -56,7 +56,7 @@ engines:
     setup:
       - type: python
         pypi:
-          - git+https://github.com/spell00/BERNN_MSMS.git@e53e8f9bfa26e10c3fd505de191ea32617688077
+          - git+https://github.com/spell00/BERNN_MSMS.git@897c194d3a58f6ab529cc0e6afd4117a813a2a65
           - tensorboardX
           - tensorboard
           - tensorflow-cpu>=2.20.0
