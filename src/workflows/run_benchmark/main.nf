@@ -20,6 +20,10 @@ methods = [
   batchelor_mnn_correct,
   bbknn,
   bernn,
+  bernn_rpb_vae_off,
+  bernn_vae_on_standard,
+  bernn_meta_pretrained,
+  robust_per_batch,
   cellplm.run(
     args: [model: file("s3://openproblems-work/cache/cellplm-ckpt.zip")]
   ),
@@ -205,7 +209,7 @@ workflow run_wf {
         id + "." + comp.config.name
       },
       filter: { id, state, comp ->
-        comp.config.info.metric_type in state.method_types_cleaned
+        comp.config.info.metric_type in state.method_types_cleaned && !(comp.config.name.tokenize("/").last() in ["cilisi", "kbet", "kbet_pg", "kbet_pg_label", "asw_label", "isolated_label_asw"])
       },
       // use 'fromState' to fetch the arguments the component requires from the overall state
       fromState: [

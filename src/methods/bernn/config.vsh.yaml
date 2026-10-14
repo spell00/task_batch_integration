@@ -15,7 +15,7 @@ info:
   method_types: [embedding]
   preferred_normalization: log_cp10k
   variants:
-    bernn_full_unscaled:
+    bernn_default:
 arguments:
   - name: --n_hvg
     type: integer
@@ -29,6 +29,14 @@ arguments:
     type: integer
     default: 50
     description: Number of unsupervised warmup epochs.
+  - name: --early_stop
+    type: integer
+    default: 5
+    description: Stop joint BERNN training after this many epochs without improvement.
+  - name: --early_warmup_stop
+    type: integer
+    default: 5
+    description: Stop BERNN warmup after this many epochs without improvement.
   - name: --batch_size
     type: integer
     default: 1024
@@ -54,14 +62,8 @@ engines:
   - type: docker
     image: openproblems/base_pytorch_nvidia:1
     setup:
-      - type: python
-        pypi:
-          - git+https://github.com/spell00/BERNN_MSMS.git@897c194d3a58f6ab529cc0e6afd4117a813a2a65
-          - tensorboardX
-          - tensorboard
-          - tensorflow-cpu>=2.20.0
-          - shap
-          - torchvision
+      - type: docker
+        run: pip install --no-cache-dir tensorboardX scikit-optimize shapely && pip install --no-cache-dir --no-deps git+https://github.com/spell00/BERNN_MSMS.git@897c194d3a58f6ab529cc0e6afd4117a813a2a65
 runners:
   - type: executable
   - type: nextflow
