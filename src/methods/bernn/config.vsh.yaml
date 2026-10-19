@@ -3,10 +3,15 @@ name: bernn
 label: BERNN
 summary: Batch Effect Removal Neural Network using supervised biological labels and batch domains.
 description: |
-  Originally developed for LC-MS proteomics data, BERNN is adapted here for
-  scRNA-seq batch integration. It learns a low-dimensional representation that
-  preserves cell-type-relevant biological signal while reducing batch effects
-  using an autoencoder-based neural network.
+  BERNN (Batch Effect Removal Neural Network) is a modality-agnostic
+  deep learning framework combining supervised classification with
+  unsupervised representation learning to reduce batch effects while
+  preserving predictive information. Originally developed using
+  LC-MS proteomics data, BERNN learns a low-dimensional representation
+  through autoencoder reconstruction and classification objectives.
+  It can be applied across data modalities when batch assignments
+  and classification targets are available. In this benchmark,
+  cell types serve as classification targets.
 references:
   doi: 10.1038/s41467-024-48177-5
 links:
