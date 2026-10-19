@@ -46,6 +46,10 @@ info:
       dest: resources_test/task_batch_integration
 
 authors:
+  - name: Simon Pelletier
+    roles: [contributor]
+    info:
+      github: spell00
   - name: Michaela Mueller
     roles: [ maintainer, author ]
     info:
