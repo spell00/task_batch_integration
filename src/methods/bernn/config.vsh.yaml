@@ -28,10 +28,14 @@ arguments:
     description: Maximum number of BERNN training epochs.
     info:
       test_default: 10
+    info:
+      test_default: 10
   - name: --warmup
     type: integer
     default: 50
     description: Number of unsupervised warmup epochs.
+    info:
+      test_default: 5
     info:
       test_default: 5
   - name: --early_stop
